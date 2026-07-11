@@ -1,0 +1,34 @@
+services:
+  app:
+    build:
+      context: .
+      target: development
+    volumes:
+      - .:/code
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      ENV: development
+      PORT: ${PORT}
+      DATABASE_URL: ${DATABASE_URL}
+  app-prod:
+    build:
+      context: .
+      target: production
+    ports:
+      - "${PORT}:${PORT}"
+    environment:
+      ENV: production
+      PORT: ${PORT}
+      DATABASE_URL: ${DATABASE_URL}
+  test:
+    build:
+      context: .
+      target: development
+    volumes:
+      - .:/code
+    environment:
+      TEST_POSTGRES_URL: ${TEST_POSTGRES_URL}
+      PORT: ${PORT}
+      ENV: test
+    command: pytest -s 
