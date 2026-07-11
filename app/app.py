@@ -2,7 +2,12 @@ from .controllers import pagos
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+app = FastAPI(
+    title="SocioUnido - Microservicio de Pagos}",
+    description="Microservicio encargado de procesar pagos y recibir notificaciones de Mercado Pago.",
+    version="1.0.0",
+    openapi_url="/api/v1/openapi/pagos.json"
+)
 
 origenes_permitidos = [
     "http://localhost:5173",

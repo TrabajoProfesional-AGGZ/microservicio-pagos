@@ -5,6 +5,11 @@ from app.schemas.pagos import PagoProcesarRequest, PreferenciaRequest, Preferenc
 
 router = APIRouter(prefix="/api/v1/pagos", tags=["Pagos"])
 
+@router.get("/health")
+def health_check():
+    """Endpoint para verificar que el microservicio está funcionando correctamente."""
+    return {"status": "ok", "service": "ms-pagos"}
+
 @router.post("/webhook")
 async def recibir_webhook_mercadopago(
     notificacion: WebhookNotification,
