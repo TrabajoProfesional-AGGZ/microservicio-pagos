@@ -2,7 +2,7 @@
 import os
 import mercadopago
 from fastapi import HTTPException
-from app.schemas.pagos import PreferenciaRequest, PreferenciaResponse, WebhookNotification
+from app.schemas.pagos import PagoProcesarRequest, PreferenciaRequest, PreferenciaResponse, WebhookNotification
 from app.utils.config import mp_token
 
 class PagosService:
@@ -69,3 +69,42 @@ class PagosService:
         
         else:
             return {"status": "pendiente", "estado": estado_pago, "id_pago": id_pago}
+        
+    def procesar_pago_tarjeta(self, pago_data: PagoProcesarRequest) -> dict:
+        """
+        Toma el token generado por el frontend y ejecuta el cobro en Mercado Pago.
+        """
+        # 1. Armamos el diccionario exactamente como lo pide la API de MP
+        payment_data = {
+            "transaction_amount": pago_data.transaction_amount,
+            "token": pago_data.token,
+            "installments": pago_data.installments,
+            "payment_method_id": pago_data.payment_method_id,
+            "issuer_id": pago_data.issuer_id,
+            "payer": {
+                "email": pago_data.payer.email,
+                "identification": pago_data.payer.identification
+            },
+            "description": "Pago de cuota societaria - SocioUnido"
+        }
+
+        # 2. Le pedimos a Mercado Pago que procese el pago
+        respuesta = self.mp.payment().create(payment_data)
+
+        # 3. Validamos la respuesta
+        if respuesta["status"] not in [200, 201]:
+            # Si MP rechaza la petición (ej. token vencido o datos mal armados)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Error al procesar el pago: {respuesta.get('response', 'Desconocido')}"
+            )
+
+        info_pago = respuesta["response"]
+        
+        # 4. Devolvemos el estado del pago al frontend
+        # Puede ser "approved" (aprobado), "in_process" (en revisión) o "rejected" (rechazado)
+        return {
+            "id_pago": info_pago["id"],
+            "estado": info_pago["status"],
+            "estado_detalle": info_pago["status_detail"]
+        }

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-
+from typing import Optional
 class PreferenciaRequest(BaseModel):
     titulo: str
     cantidad: int
@@ -21,3 +21,15 @@ class WebhookNotification(BaseModel):
     live_mode: bool
     type: str
     user_id: int
+
+class Payer(BaseModel):
+    email: str
+    identification: Optional[dict] = None
+
+class PagoProcesarRequest(BaseModel):
+    token: str
+    transaction_amount: float
+    installments: int
+    payment_method_id: str
+    issuer_id: Optional[str] = None
+    payer: Payer

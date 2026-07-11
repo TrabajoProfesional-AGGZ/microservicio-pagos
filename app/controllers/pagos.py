@@ -1,7 +1,7 @@
 # app/api/routers/pagos_router.py
 from fastapi import APIRouter, Depends
 from app.services.pagos import PagosService
-from app.schemas.pagos import PreferenciaRequest, PreferenciaResponse, WebhookNotification
+from app.schemas.pagos import PagoProcesarRequest, PreferenciaRequest, PreferenciaResponse, WebhookNotification
 
 router = APIRouter(prefix="/api/v1/pagos", tags=["Pagos"])
 
@@ -25,4 +25,15 @@ async def recibir_webhook_mercadopago(
     """
     resultado = service.procesar_notificacion_webhook(notificacion)
     
+    return resultado
+
+@router.post("/procesar")
+async def procesar_pago_endpoint(
+    request: PagoProcesarRequest,
+    service: PagosService = Depends()
+):
+    """
+    Recibe el token de tarjeta desde el Checkout Brick y ejecuta el cobro.
+    """
+    resultado = service.procesar_pago_tarjeta(request)
     return resultado
