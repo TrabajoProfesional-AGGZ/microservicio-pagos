@@ -11,3 +11,5 @@ database_url = os.getenv("DATABASE_URL", "postgresql://dummy:dummy@localhost/dum
 mp_token = os.getenv("MP_ACCESS_TOKEN_TEST")
 if not mp_token:
     raise ValueError("Falta configurar MP_ACCESS_TOKEN_TEST en el .env")
+
+ms_club_url = os.getenv("MS_CLUB_URL", "http://localhost:8000")  # URL del microservicio ms-club

@@ -3,21 +3,21 @@ import os
 import mercadopago
 from fastapi import HTTPException
 from app.schemas.pagos import PagoProcesarRequest, PreferenciaRequest, PreferenciaResponse, WebhookNotification
-from app.utils.config import mp_token
+from app.utils.config import mp_token, ms_club_url
+import httpx2
+from fastapi import HTTPException
 
 class PagosService:
     def __init__(self):
         access_token = mp_token
         self.mp = mercadopago.SDK(access_token)
         
-    def procesar_notificacion_webhook(self, notificacion: WebhookNotification) -> dict:
-        # MP manda notificaciones de varios tipos. Solo nos importan los "pagos"
+    async def procesar_notificacion_webhook(self, notificacion: WebhookNotification) -> dict:
         if notificacion.type != "payment":
             return {"status": "ignorado", "detalle": "No es un evento de pago"}
 
         id_pago = notificacion.data.id
 
-        # 1. Consultamos a MP el estado real de este pago
         respuesta = self.mp.payment().get(id_pago)
 
         if respuesta["status"] != 200:
@@ -26,13 +26,21 @@ class PagosService:
         info_pago = respuesta["response"]
         estado_pago = info_pago["status"]
         
-        # Opcional: Podés recuperar el ID de tu cuota si lo enviaste en la preferencia (external_reference)
-        # external_reference = info_pago.get("external_reference")
+        id_cuota = info_pago.get("external_reference")
 
-        # 2. Lógica de negocio según el estado
         if estado_pago == "approved":
-            # ACÁ VA TU LÓGICA DE BASE DE DATOS
-            # Ej: cuota_repository.marcar_como_pagada(external_reference)
+            if not id_cuota:
+                return {"status": "procesado", "estado": "Aprobado sin ID de cuota"}
+
+            async with httpx2.AsyncClient() as client:
+                try:
+                    res = await client.post(
+                        f"{ms_club_url}/api/v1/internos/cuotas/{id_cuota}/marcar-pagada"
+                    )
+                    res.raise_for_status()
+                except httpx2.HTTPError as e:
+                    print(f"Error crítico: Falló la comunicación con ms-club: {e}")
+                    
             return {"status": "procesado", "estado": "Aprobado", "id_pago": id_pago}
         
         elif estado_pago == "rejected":
@@ -42,10 +50,7 @@ class PagosService:
             return {"status": "pendiente", "estado": estado_pago, "id_pago": id_pago}
         
     def procesar_pago_tarjeta(self, pago_data: PagoProcesarRequest) -> dict:
-        """
-        Toma el token generado por el frontend y ejecuta el cobro en Mercado Pago.
-        """
-        # 1. Armamos el diccionario exactamente como lo pide la API de MP
+        # 1. Armamos el diccionario agregando external_reference
         payment_data = {
             "transaction_amount": pago_data.transaction_amount,
             "token": pago_data.token,
@@ -56,7 +61,8 @@ class PagosService:
                 "email": pago_data.payer.email,
                 "identification": pago_data.payer.identification
             },
-            "description": "Pago de cuota societaria - SocioUnido"
+            "description": "Pago de cuota societaria - SocioUnido",
+            "external_reference": str(pago_data.id_cuota) 
         }
 
         # 2. Le pedimos a Mercado Pago que procese el pago

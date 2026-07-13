@@ -1,75 +1,99 @@
-# tests/test_pagos.py
 import pytest
-from unittest.mock import patch
-from fastapi import status
-from app.main import app 
-from app.utils.verify_token import verify_token
+from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
+from uuid import uuid4
+from app.main import app # Asegúrate de que esta sea tu instancia de FastAPI
 
-# ==========================================
-# FIXTURES Y MOCKS
-# ==========================================
+client = TestClient(app)
 
-def mock_verify_token():
-    return {"uid": "test_user", "rol": "socio"}
-
-@pytest.fixture(autouse=True)
-def override_seguridad():
-    """Bypass de la seguridad para los tests."""
-    app.dependency_overrides[verify_token] = mock_verify_token
-    yield
-    app.dependency_overrides = {}
-
-# ==========================================
-# TESTS
-# ==========================================
-
-# Parcheamos la clase SDK de Mercado Pago directamente donde se importa en el servicio
+# ---------------------------------------------------------
+# TEST 1: Procesar pago con tarjeta
+# ---------------------------------------------------------
 @patch("app.services.pagos_service.mercadopago.SDK")
-def test_crear_preferencia_exito(mock_mp_sdk, client):
-    # 1. ARRANGE: Configuramos el comportamiento de mentira de Mercado Pago
-    # Simulamos la respuesta JSON que devolvería MP si le pasamos credenciales válidas
-    mock_sdk_instance = mock_mp_sdk.return_value
-    mock_sdk_instance.preference().create.return_value = {
+def test_procesar_pago_tarjeta_exito(mock_sdk):
+    # Configurar el mock de Mercado Pago
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.create.return_value = {
         "status": 201,
-        "response": {
-            "id": "123456789-mocked-id",
-            "init_point": "https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=123"
-        }
+        "response": {"id": 12345, "status": "approved", "status_detail": "accredited"}
     }
-
+    id_cuota_fake = str(uuid4())
     payload = {
-        "titulo": "Cuota Mensual Test",
-        "cantidad": 1,
-        "precio_unitario": 5000.0
+        "token": "card_token_123",
+        "transaction_amount": 5000.0,
+        "installments": 1,
+        "payment_method_id": "visa",
+        "payer": {"email": "test@test.com"},
+        "id_cuota": id_cuota_fake
     }
 
-    # 2. ACT: Hacemos la petición a nuestro backend
-    response = client.post("/api/v1/pagos/preferencia-test", json=payload)
-
-    # 3. ASSERT: Verificamos que todo responda como esperamos
-    assert response.status_code == status.HTTP_200_OK
-    data = response.json()
+    response = client.post("/api/v1/pagos/procesar", json=payload)
     
-    assert data["id_preferencia"] == "123456789-mocked-id"
-    assert "sandbox.mercadopago" in data["init_point"]
-    
-    # Validamos que el SDK haya sido llamado exactamente 1 vez con los datos correctos
-    mock_sdk_instance.preference().create.assert_called_once()
-    argumentos_llamada = mock_sdk_instance.preference().create.call_args[0][0]
-    assert argumentos_llamada["items"][0]["title"] == "Cuota Mensual Test"
+    assert response.status_code == 200
+    assert response.json()["estado"] == "approved"
+    mock_payment.create.assert_called_once()
 
-
+# ---------------------------------------------------------
+# TEST 2: Webhook - Pago Aprobado (debe llamar al Club)
+# ---------------------------------------------------------
+@patch("app.services.pagos_service.httpx2.AsyncClient.post")
 @patch("app.services.pagos_service.mercadopago.SDK")
-def test_crear_preferencia_falla_credenciales(mock_mp_sdk, client):
-    # Simulamos que MP rechaza la petición (ej: Access Token inválido)
-    mock_sdk_instance = mock_mp_sdk.return_value
-    mock_sdk_instance.preference().create.return_value = {
-        "status": 401,
-        "response": {"message": "Unauthorized"}
+def test_webhook_pago_aprobado_llama_al_club(mock_sdk, mock_httpx_post):
+    # Mock de MP: Retorna estado aprobado y un external_reference (ID Cuota)
+    id_cuota_fake = str(uuid4())
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200, 
+        "response": {"status": "approved", "external_reference": id_cuota_fake}
+    }
+    
+    # Mock de HTTP: Simula respuesta exitosa del ms-club
+    mock_httpx_post.return_value.status_code = 200
+
+    webhook_payload = {
+        "action": "payment.updated",
+        "api_version": "v1",
+        "data": {"id": "123456"},
+        "date_created": "2026-07-13T00:00:00Z",
+        "id": 123456,
+        "live_mode": True,
+        "type": "payment",
+        "user_id": 999
     }
 
-    payload = {"titulo": "Error", "cantidad": 1, "precio_unitario": 100}
-    response = client.post("/api/v1/pagos/preferencia-test", json=payload)
+    response = client.post("/api/v1/pagos/webhook", json=webhook_payload)
+    
+    assert response.status_code == 200
+    # Verificamos que se intentó avisar al Club
+    mock_httpx_post.assert_called_once()
+    assert id_cuota_fake in mock_httpx_post.call_args[0][0]
 
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "Error al crear preferencia" in response.json()["detail"]
+# ---------------------------------------------------------
+# TEST 3: Webhook - Pago Rechazado (no debe llamar al Club)
+# ---------------------------------------------------------
+@patch("app.services.pagos_service.httpx2.AsyncClient.post")
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_pago_rechazado_no_llama_al_club(mock_sdk, mock_httpx_post):
+    # Mock de MP: Retorna estado rechazado
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200, 
+        "response": {"status": "rejected"}
+    }
+    
+    webhook_payload = {
+        "action": "payment.updated",
+        "api_version": "v1",
+        "data": {"id": "123456"},
+        "date_created": "2026-07-13T00:00:00Z",
+        "id": 123456,
+        "live_mode": True,
+        "type": "payment",
+        "user_id": 999
+    }
+
+    response = client.post("/api/v1/pagos/webhook", json=webhook_payload)
+    
+    assert response.status_code == 200
+    # Verificamos que NO se llamó al Club porque el pago no fue aprobado
+    mock_httpx_post.assert_not_called()
