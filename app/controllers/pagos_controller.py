@@ -1,6 +1,6 @@
 # app/api/routers/pagos_router.py
 from fastapi import APIRouter, Depends
-from app.services.pagos import PagosService
+from app.services.pagos_service import PagosService
 from app.schemas.pagos import PagoProcesarRequest, PreferenciaRequest, PreferenciaResponse, WebhookNotification
 
 router = APIRouter(prefix="/api/v1/pagos", tags=["Pagos"])
@@ -18,7 +18,7 @@ async def recibir_webhook_mercadopago(
     """
     Recibe las notificaciones IPN/Webhooks de Mercado Pago.
     """
-    resultado = service.procesar_notificacion_webhook(notificacion)
+    resultado = await service.procesar_notificacion_webhook(notificacion)
     
     return resultado
 

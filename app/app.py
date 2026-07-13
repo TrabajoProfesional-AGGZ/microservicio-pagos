@@ -1,4 +1,4 @@
-from .controllers import pagos
+from .controllers import pagos_controller as pagos
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

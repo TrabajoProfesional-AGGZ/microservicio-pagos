@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, UUID4
 from typing import Optional
+from decimal import Decimal
 class PreferenciaRequest(BaseModel):
     titulo: str
     cantidad: int
@@ -33,3 +34,4 @@ class PagoProcesarRequest(BaseModel):
     payment_method_id: str
     issuer_id: Optional[str] = None
     payer: Payer
+    id_cuota: UUID4
