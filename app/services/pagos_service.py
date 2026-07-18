@@ -1,5 +1,6 @@
 # app/services/pagos_service.py
-import os
+import asyncio
+from datetime import datetime
 import mercadopago
 from fastapi import HTTPException
 from app.schemas.pagos import PagoProcesarRequest, PreferenciaRequest, PreferenciaResponse, WebhookNotification
@@ -9,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
 from app.repositories.pagos_repository import PagosRepository
+from app.utils.redis import publicar_evento_pago
 class PagosService:
     def __init__(self):
         access_token = mp_token
@@ -67,6 +69,18 @@ class PagosService:
                         f"{ms_club_url}/api/v1/internos/cuotas/{id_cuota_str}/marcar-pagada"
                     )
                     res.raise_for_status()
+
+                    periodo_actual = datetime.now().strftime("%Y-%m")
+                    
+                    concepto_pago = info_pago.get("description", "Cuota Social") 
+                    
+                    payload_evento = {
+                        "periodo": periodo_actual,
+                        "concepto": concepto_pago,
+                        "monto": monto
+                    }
+                    
+                    asyncio.create_task(publicar_evento_pago(payload_evento))
                 except httpx2.HTTPError as e:
                     print(f"Error crítico: Falló la comunicación con ms-club: {e}")
                     

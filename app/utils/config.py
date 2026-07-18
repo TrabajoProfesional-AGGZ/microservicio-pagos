@@ -13,3 +13,4 @@ if not mp_token:
     raise ValueError("Falta configurar MP_ACCESS_TOKEN_TEST en el .env")
 
 ms_club_url = os.getenv("MS_CLUB_URL", "http://localhost:8000")  # URL del microservicio ms-club
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")  # URL de Redis
