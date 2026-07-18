@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from app.repositories.pagos_repository import PagosRepository
 from app.utils.redis import publicar_evento_pago
+
+tareas_en_segundo_plano = set()
 class PagosService:
     def __init__(self):
         access_token = mp_token
@@ -88,8 +90,12 @@ class PagosService:
                         "concepto": concepto_pago,
                         "monto": monto
                     }
+
+                    tarea_redis = asyncio.create_task(publicar_evento_pago(payload_evento))
                     
-                    asyncio.create_task(publicar_evento_pago(payload_evento))
+                    tareas_en_segundo_plano.add(tarea_redis)
+                    
+                    tarea_redis.add_done_callback(tareas_en_segundo_plano.discard)
                 except httpx2.HTTPError as e:
                     print(f"Error crítico: Falló la comunicación con ms-club: {e}")
                     
