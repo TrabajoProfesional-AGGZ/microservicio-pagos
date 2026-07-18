@@ -46,8 +46,13 @@ class PagosService:
                 return {"status": "error", "detalle": "external_reference no es un UUID válido"}
 
         pago_existente = PagosRepository.get_pago_by_externo(db, id_pago_externo)
-
+        
+        pago_ya_estaba_aprobado = False
+        
         if pago_existente:
+            if pago_existente.estado == "approved" and estado_pago == "approved":
+                pago_ya_estaba_aprobado = True
+            
             PagosRepository.update_estado_pago(db, pago_existente, estado_pago)
         else:
             PagosRepository.create_pago(
@@ -60,6 +65,10 @@ class PagosService:
             )
 
         if estado_pago == "approved":
+            if pago_ya_estaba_aprobado:
+                print(f"🔄 Webhook duplicado ignorado para el pago: {id_pago_externo}")
+                return {"status": "procesado", "estado": "Ya estaba aprobado previamente", "id_pago": id_pago_externo}
+            
             if not id_cuota_str:
                 return {"status": "procesado", "estado": "Aprobado sin ID de cuota"}
 
