@@ -22,7 +22,6 @@ jobs:
           POSTGRES_USER: testuser
           POSTGRES_PASSWORD: testpass
           POSTGRES_DB: testdb
-          MP_ACCESS_TOKEN_TEST: mptoken
         ports:
           - 5432:5432
         options: >-
@@ -50,6 +49,7 @@ jobs:
         env:
           TEST_POSTGRES_URL: "postgresql://testuser:testpass@localhost:5432/testdb"
           DATABASE_URL: "postgresql://testuser:testpass@localhost:5432/testdb"
+          MP_ACCESS_TOKEN_TEST: mptoken
         run: |
           python -m pytest --cov=app --cov-report=xml tests/
 

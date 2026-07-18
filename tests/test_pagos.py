@@ -212,7 +212,7 @@ def test_create_pago():
     
     # Verificamos que el objeto devuelto tenga los datos correctos
     assert resultado.id_pago_externo == "777666"
-    assert resultado.monto == 2500.50
+    assert resultado.monto == pytest.approx(2500.50)
     assert resultado.estado == "pending"
     assert resultado.id_cuota == id_cuota_fake
     assert resultado.metodo_pago == "ticket"
