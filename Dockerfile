@@ -7,14 +7,22 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 COPY ./app /code/app
 
+RUN adduser --disabled-password --no-create-home appuser
+
+COPY --chown=appuser:appuser ./app /code/app
+
+
 FROM base AS production
+
+USER appuser
 
 CMD ["python3", "-m", "app.main"]
 
-# Development Stage
+
 FROM base AS development
 
-RUN pip install --no-cache-dir watchdog 
+RUN pip install --no-cache-dir watchdog
 
-# Command for development with auto-reload
+USER appuser
+
 CMD ["python3", "-m", "app.main"]

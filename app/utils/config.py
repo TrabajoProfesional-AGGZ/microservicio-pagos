@@ -14,3 +14,4 @@ if not mp_token:
 
 ms_club_url = os.getenv("MS_CLUB_URL", "http://localhost:8000")  # URL del microservicio ms-club
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")  # URL de Redis
+host = os.getenv("HOST", "127.0.0.1")

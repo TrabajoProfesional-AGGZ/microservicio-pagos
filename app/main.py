@@ -1,5 +1,5 @@
 import uvicorn
-from app.utils.config import env, port
+from app.utils.config import env, port, host
 import logging
 from .app import app
 
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     init_logger("DEBUG")
     uvicorn.run(
         "app.main:app",
-        host="0.0.0.0",
+        host=host,
         port=int(port),
         reload=True if env == "development" else False,
     )
