@@ -16,7 +16,7 @@ class PagosRepository:
         id_pago_externo: str, 
         monto: float, 
         estado: str, 
-        id_cuota: UUID | None = None, 
+        id_item: UUID | None = None, 
         metodo_pago: str | None = None,
         pasarela: str = "MercadoPago"
     ) -> Pago:
@@ -26,7 +26,7 @@ class PagosRepository:
             pasarela=pasarela,
             monto=monto,
             estado=estado,
-            id_cuota=id_cuota,
+            id_item=id_item,
             metodo_pago=metodo_pago
         )
         db.add(nuevo_pago)

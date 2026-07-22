@@ -18,17 +18,11 @@ class PagosService:
         access_token = mp_token
         self.mp = mercadopago.SDK(access_token)
         
-    async def procesar_notificacion_webhook(
-        self, 
-        notificacion: WebhookNotification, 
-        db: Session
-    ) -> dict:
-        
+    async def procesar_notificacion_webhook(self, notificacion: WebhookNotification, db: Session) -> dict:
         if notificacion.type != "payment":
             return {"status": "ignorado", "detalle": "No es un evento de pago"}
 
         id_pago_externo = str(notificacion.data.id)
-
         respuesta = self.mp.payment().get(id_pago_externo)
 
         if respuesta["status"] != 200:
@@ -36,25 +30,28 @@ class PagosService:
 
         info_pago = respuesta["response"]
         estado_pago = info_pago["status"]
-        id_cuota_str = info_pago.get("external_reference")
         monto = info_pago.get("transaction_amount")
         metodo_pago = info_pago.get("payment_method_id")
+        
+        external_ref = info_pago.get("external_reference")
 
-        id_cuota_uuid = None
-        if id_cuota_str:
+        id_item_uuid = None
+        tipo_item = None
+        id_item_str = None
+
+        if external_ref and "|" in external_ref:
+            tipo_item, id_item_str = external_ref.split("|")
             try:
-                id_cuota_uuid = UUID(id_cuota_str)
+                id_item_uuid = UUID(id_item_str)
             except ValueError:
-                return {"status": "error", "detalle": "external_reference no es un UUID válido"}
+                return {"status": "error", "detalle": "El ID en external_reference no es un UUID válido"}
 
         pago_existente = PagosRepository.get_pago_by_externo(db, id_pago_externo)
-        
         pago_ya_estaba_aprobado = False
         
         if pago_existente:
             if pago_existente.estado == "approved" and estado_pago == "approved":
                 pago_ya_estaba_aprobado = True
-            
             PagosRepository.update_estado_pago(db, pago_existente, estado_pago)
         else:
             PagosRepository.create_pago(
@@ -62,28 +59,28 @@ class PagosService:
                 id_pago_externo=id_pago_externo,
                 monto=monto,
                 estado=estado_pago,
-                id_cuota=id_cuota_uuid,
+                id_item=id_item_uuid, # 🚀 Usamos el UUID extraído
                 metodo_pago=metodo_pago
             )
 
         if estado_pago == "approved":
             if pago_ya_estaba_aprobado:
-                print(f"🔄 Webhook duplicado ignorado para el pago: {id_pago_externo}")
                 return {"status": "procesado", "estado": "Ya estaba aprobado previamente", "id_pago": id_pago_externo}
             
-            if not id_cuota_str:
-                return {"status": "procesado", "estado": "Aprobado sin ID de cuota"}
+            if not id_item_str:
+                return {"status": "procesado", "estado": "Aprobado sin ID de referencia"}
+
+            endpoint_interno = "cuotas" if tipo_item == "cuota" else "reservas"
 
             async with httpx2.AsyncClient() as client:
                 try:
                     res = await client.post(
-                        f"{ms_club_url}/api/v1/internos/cuotas/{id_cuota_str}/marcar-pagada"
+                        f"{ms_club_url}/api/v1/internos/{endpoint_interno}/{id_item_str}/marcar-pagada"
                     )
                     res.raise_for_status()
 
                     periodo_actual = datetime.now().strftime("%Y-%m")
-                    
-                    concepto_pago = info_pago.get("description", "Cuota Social") 
+                    concepto_pago = info_pago.get("description", "Pago Genérico") 
                     
                     payload_evento = {
                         "periodo": periodo_actual,
@@ -92,9 +89,7 @@ class PagosService:
                     }
 
                     tarea_redis = asyncio.create_task(publicar_evento_pago(payload_evento))
-                    
                     tareas_en_segundo_plano.add(tarea_redis)
-                    
                     tarea_redis.add_done_callback(tareas_en_segundo_plano.discard)
                 except httpx2.HTTPError as e:
                     print(f"Error crítico: Falló la comunicación con ms-club: {e}")
@@ -103,7 +98,6 @@ class PagosService:
         
         elif estado_pago == "rejected":
             return {"status": "procesado", "estado": "Rechazado", "id_pago": id_pago_externo}
-        
         else:
             return {"status": "pendiente", "estado": estado_pago, "id_pago": id_pago_externo}
         
@@ -119,8 +113,9 @@ class PagosService:
                 "email": pago_data.payer.email,
                 "identification": pago_data.payer.identification
             },
-            "description": "Pago de cuota societaria - SocioUnido",
-            "external_reference": str(pago_data.id_cuota) 
+            "description": f"Pago de {pago_data.tipo_item} - SocioUnido",
+            #(Ej: "cuota|1234-5678-..." o "reserva|1234-5679-...")
+            "external_reference": f"{pago_data.tipo_item}|{str(pago_data.id_item)}" 
         }
 
         # 2. Le pedimos a Mercado Pago que procese el pago

@@ -34,4 +34,5 @@ class PagoProcesarRequest(BaseModel):
     payment_method_id: str
     issuer_id: Optional[str] = None
     payer: Payer
-    id_cuota: UUID4
+    id_item: UUID4
+    tipo_item: str

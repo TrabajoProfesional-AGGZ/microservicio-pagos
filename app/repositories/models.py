@@ -19,8 +19,8 @@ class Pago(Base):
     # approved, pending, rejected, in_process, etc.
     estado = Column(String, nullable=False) 
     
-    # Guardamos a qué cuota corresponde este pago
-    id_cuota = Column(UUID(as_uuid=True), index=True, nullable=True) 
+    # Guardamos a qué item corresponde este pago
+    id_item = Column(UUID(as_uuid=True), index=True, nullable=True) 
     
     # credit_card, account_money, ticket, etc.
     metodo_pago = Column(String, nullable=True) 
