@@ -5,6 +5,7 @@ from uuid import uuid4
 from app.main import app 
 from app.repositories.pagos_repository import PagosRepository
 from app.repositories.models import Pago
+import httpx2
 
 
 client = TestClient(app)
@@ -226,3 +227,139 @@ def test_update_estado_pago():
     # Verificamos que el estado haya mutado correctamente
     assert resultado.estado == "approved"
     assert pago_existente.estado == "approved"
+
+# ---------------------------------------------------------
+# TESTS DE COBERTURA EXTRA (Casos Edge y Errores)
+# ---------------------------------------------------------
+
+PAYLOAD_BASE = {
+    "action": "payment.updated",
+    "api_version": "v1",
+    "data": {"id": "123"},
+    "date_created": "2026-07-22T00:00:00Z",
+    "id": 123456,
+    "live_mode": True,
+    "type": "payment",
+    "user_id": 999
+}
+
+def test_webhook_ignorado_por_tipo_distinto_a_payment():
+    """Cubre la línea: if notificacion.type != 'payment': return ignorado"""
+    webhook_payload = PAYLOAD_BASE.copy()
+    webhook_payload["type"] = "plan" 
+
+    response = client.post("/api/v1/pagos/webhook", json=webhook_payload)
+    
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignorado"
+
+
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_error_uuid_invalido(mock_sdk):
+    """Cubre el bloque: except ValueError en la conversión del UUID"""
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200,
+        "response": {
+            "status": "approved",
+            "external_reference": "cuota|ESTO-NO-ES-UN-UUID-VALIDO",
+            "transaction_amount": 1500.0
+        }
+    }
+    
+    response = client.post("/api/v1/pagos/webhook", json=PAYLOAD_BASE)
+    
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert "UUID válido" in response.json()["detalle"]
+
+
+@patch("app.services.pagos_service.PagosRepository")
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_pago_ya_estaba_aprobado_previamente(mock_sdk, mock_repo):
+    """Cubre la línea: if pago_existente.estado == 'approved' and estado_pago == 'approved'"""
+    id_item_fake = str(uuid4())
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200,
+        "response": {
+            "status": "approved",
+            "external_reference": f"cuota|{id_item_fake}",
+            "transaction_amount": 1500.0
+        }
+    }
+    mock_pago_existente = MagicMock()
+    mock_pago_existente.estado = "approved" 
+    mock_repo.get_pago_by_externo.return_value = mock_pago_existente
+
+    response = client.post("/api/v1/pagos/webhook", json=PAYLOAD_BASE)
+    
+    assert response.status_code == 200
+    assert response.json()["estado"] == "Ya estaba aprobado previamente"
+
+
+@patch("app.services.pagos_service.PagosRepository")
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_aprobado_sin_id_de_referencia(mock_sdk, mock_repo):
+    """Cubre la línea: if not id_item_str: return Aprobado sin ID"""
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200,
+        "response": {
+            "status": "approved",
+            "external_reference": None, 
+            "transaction_amount": 1500.0
+        }
+    }
+    mock_repo.get_pago_by_externo.return_value = None
+
+    response = client.post("/api/v1/pagos/webhook", json=PAYLOAD_BASE)
+    
+    assert response.status_code == 200
+    assert response.json()["estado"] == "Aprobado sin ID de referencia"
+
+@patch("app.services.pagos_service.PagosRepository")
+@patch("app.services.pagos_service.httpx2.AsyncClient.post")
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_http_error_al_comunicar_con_club(mock_sdk, mock_httpx_post, mock_repo):
+    """Cubre el bloque except httpx2.HTTPError al fallar la red hacia ms-club"""
+    id_item_fake = str(uuid4())
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200,
+        "response": {
+            "status": "approved",
+            "external_reference": f"cuota|{id_item_fake}",
+            "transaction_amount": 1500.0
+        }
+    }
+    mock_repo.get_pago_by_externo.return_value = None
+    
+    mock_httpx_post.side_effect = httpx2.HTTPError("Connection failed")
+
+    response = client.post("/api/v1/pagos/webhook", json=PAYLOAD_BASE)
+    
+    assert response.status_code == 200
+
+
+@patch("app.services.pagos_service.PagosRepository")
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_pago_estado_pendiente_u_otro(mock_sdk, mock_repo):
+    """Cubre el bloque final: else: return pendiente"""
+    id_item_fake = str(uuid4())
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200,
+        "response": {
+            "status": "in_process",
+            "external_reference": f"cuota|{id_item_fake}",
+            "transaction_amount": 1500.0
+        }
+    }
+    mock_repo.get_pago_by_externo.return_value = None
+
+    response = client.post("/api/v1/pagos/webhook", json=PAYLOAD_BASE)
+    
+    assert response.status_code == 200
+    assert response.json()["status"] == "pendiente"
+    assert response.json()["estado"] == "in_process"
