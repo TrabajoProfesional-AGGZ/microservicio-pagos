@@ -70,7 +70,12 @@ class PagosService:
             if not id_item_str:
                 return {"status": "procesado", "estado": "Aprobado sin ID de referencia"}
 
-            endpoint_interno = "cuotas" if tipo_item == "cuota" else "reservas"
+            if tipo_item == "cuota":
+                endpoint_interno = "cuotas"
+            elif tipo_item == "entrada":
+                endpoint_interno = "entradas"
+            else:
+                endpoint_interno = "reservas"
 
             async with httpx2.AsyncClient() as client:
                 try:

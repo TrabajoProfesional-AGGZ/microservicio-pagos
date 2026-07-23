@@ -343,6 +343,60 @@ def test_webhook_http_error_al_comunicar_con_club(mock_sdk, mock_httpx_post, moc
 
 
 @patch("app.services.pagos_service.PagosRepository")
+@patch("app.services.pagos_service.httpx2.AsyncClient.post")
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_pago_aprobado_de_reserva_llama_al_endpoint_de_reservas(mock_sdk, mock_httpx_post, mock_repo):
+    """tipo_item='reserva' debe pegarle a /internos/reservas/... (rama sin test hasta ahora)."""
+    id_item_fake = str(uuid4())
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200,
+        "response": {
+            "status": "approved",
+            "external_reference": f"reserva|{id_item_fake}",
+            "transaction_amount": 1500.0,
+            "payment_method_id": "credit_card",
+        },
+    }
+    mock_repo.get_pago_by_externo.return_value = None
+    mock_httpx_post.return_value.status_code = 200
+
+    response = client.post("/api/v1/pagos/webhook", json=PAYLOAD_BASE)
+
+    assert response.status_code == 200
+    mock_httpx_post.assert_called_once()
+    url_llamada = mock_httpx_post.call_args[0][0]
+    assert url_llamada.endswith(f"/api/v1/internos/reservas/{id_item_fake}/marcar-pagada")
+
+
+@patch("app.services.pagos_service.PagosRepository")
+@patch("app.services.pagos_service.httpx2.AsyncClient.post")
+@patch("app.services.pagos_service.mercadopago.SDK")
+def test_webhook_pago_aprobado_de_entrada_llama_al_endpoint_de_entradas(mock_sdk, mock_httpx_post, mock_repo):
+    """tipo_item='entrada' (HU-8.3) debe pegarle a /internos/entradas/..., no caer en el else de reservas."""
+    id_item_fake = str(uuid4())
+    mock_payment = mock_sdk.return_value.payment.return_value
+    mock_payment.get.return_value = {
+        "status": 200,
+        "response": {
+            "status": "approved",
+            "external_reference": f"entrada|{id_item_fake}",
+            "transaction_amount": 500.0,
+            "payment_method_id": "credit_card",
+        },
+    }
+    mock_repo.get_pago_by_externo.return_value = None
+    mock_httpx_post.return_value.status_code = 200
+
+    response = client.post("/api/v1/pagos/webhook", json=PAYLOAD_BASE)
+
+    assert response.status_code == 200
+    mock_httpx_post.assert_called_once()
+    url_llamada = mock_httpx_post.call_args[0][0]
+    assert url_llamada.endswith(f"/api/v1/internos/entradas/{id_item_fake}/marcar-pagada")
+
+
+@patch("app.services.pagos_service.PagosRepository")
 @patch("app.services.pagos_service.mercadopago.SDK")
 def test_webhook_pago_estado_pendiente_u_otro(mock_sdk, mock_repo):
     """Cubre el bloque final: else: return pendiente"""
